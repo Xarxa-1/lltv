@@ -1,69 +1,65 @@
 import time
-from seleniumwire import webdriver
+import json
+from selenium import webdriver  # Selenium estàndard, sense wire
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 
-# CONFIGURACIÓ CRÍTICA PER A GITHUB ACTIONS:
-# Evita que selenium-wire s'intenti connectar a proxies externs del servidor
-seleniumwire_options = {
-    'connection_timeout': None,
-    'verify_ssl': False,
-    'suppress_connection_errors': True
-}
-
+# 1. Configurar opcions del navegador per activar el registre de xarxa
 opcions = webdriver.ChromeOptions()
-opcions.add_argument('--headless=new')  # Mode ocult actualitzat
+opcions.add_argument('--headless=new')  # Mode ocult modern
 opcions.add_argument('--no-sandbox')
 opcions.add_argument('--disable-dev-shm-usage')
 opcions.add_argument('--disable-gpu')
-opcions.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
 
-print("Iniciant el navegador virtual optimitzat per a servidors...")
+# CRÍTIC: Diem a Chrome que enregistri tota l'activitat de xarxa
+opcions.set_capability('goog:loggingPrefs', {'performance': 'ALL'})
+
+print("Iniciant Google Chrome a GitHub Actions...")
+servei = Service(ChromeDriverManager().install())
+navegador = webdriver.Chrome(service=servei, options=opcions)
+
+url_web = "https://lleidatv.cat"
+url_m3u8_trobada = None
 
 try:
-    servei = Service(ChromeDriverManager().install())
-    # Afegim les 'seleniumwire_options' aquí per evitar el xoc amb el sistema de GitHub
-    navegador = webdriver.Chrome(
-        service=servei, 
-        options=opcions, 
-        seleniumwire_options=seleniumwire_options
-    )
-    
-    url_web = "https://lleidatv.cat"
-    url_m3u8_trobada = None
-
     print(f"Navegant cap a: {url_web}")
     navegador.get(url_web)
     
-    print("Esperant que el reproductor i els scripts carreguin el vídeo (12 segons)...")
-    time.sleep(12)
+    print("Esperant 15 segons perquè el reproductor carregui el flux m3u8...")
+    time.sleep(15)
 
-    print("Analitzant el trànsit de xarxa en segon pla...")
-    for peticio in navegador.requests:
-        if peticio.response:
-            # Imprimim les peticions m3u8 que veiem per fer depuració a la consola de GitHub
-            if '.m3u8' in peticio.url:
-                url_m3u8_trobada = peticio.url
-                print(f"¡URL DETECTADA AMB ÈXIT!: {url_m3u8_trobada}")
+    # 2. Extreure els registres de rendiment del propi Chrome
+    print("Analitzant el registre de connexions de Chrome...")
+    registres = navegador.get_log('performance')
+    
+    for entrada in registres:
+        missatge = json.loads(entrada['message'])['message']
+        
+        # Busquem mètodes de xarxa on s'hagi enviat una petició (Network.requestWillBeSent)
+        if 'method' in missatge and missatge['method'] == 'Network.requestWillBeSent':
+            url_peticio = missatge['params']['request']['url']
+            
+            # Filtrem si la URL conté .m3u8
+            if '.m3u8' in url_peticio:
+                url_m3u8_trobada = url_peticio
+                print(f"¡ÈXIT! URL m3u8 interceptada: {url_m3u8_trobada}")
                 break
 
+    # 3. Crear el fitxer url.m3u
     if url_m3u8_trobada:
         nom_arxiu = "url.m3u"
         with open(nom_arxiu, "w", encoding="utf-8") as arxiu:
             arxiu.write("#EXTM3U\n")
             arxiu.write("#EXTINF:-1,Lleida TV En Directe\n")
             arxiu.write(f"{url_m3u8_trobada}\n")
-        print(f"Arxiu '{nom_arxiu}' desat correctament.")
+        print(f"El fitxer '{nom_arxiu}' s'ha creat correctament al repositori.")
     else:
-        print("⚠️ Alerta: El reproductor ha carregat però no s'ha interceptat cap petició de tipus .m3u8.")
+        print("⚠️ Alerta: La web ha carregat, però no s'ha trobat cap enllaç .m3u8 en els registres.")
 
 except Exception as e:
-    print(f"❌ S'ha produït un error físic durant l'execució: {e}")
-    raise e  # Forcem l'error perquè GitHub sàpiga que ha fallat
+    print(f"❌ Error durant l'execució: {e}")
+    raise e
 
 finally:
-    try:
-        navegador.quit()
-        print("Navegador tancat correctament.")
-    except:
-        pass
+    navegador.quit()
+    print("Navegador tancat.")
