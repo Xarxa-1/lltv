@@ -1,0 +1,46 @@
+name: Bot Extractor M3U8
+
+on:
+  schedule:
+    - cron: '0 */6 * * *' # S'executarà automàticament cada 6 hores (ideal si l'enllaç caduca)
+  workflow_dispatch:     # Afegeix un botó a GitHub per poder-lo executar manualment quan vulguis
+
+jobs:
+  extreure-enllac:
+    runs-on: ubuntu-latest
+
+    steps:
+    # 1. Baixar el codi del teu repositori
+    - name: Baixar codi del repositori
+      uses: actions/checkout@v4
+
+    # 2. Configurar Python al servidor de GitHub
+    - name: Configurar l'entorn de Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    # 3. Instal·lar oficialment Google Chrome al servidor virtual
+    - name: Instal·lar Google Chrome
+      uses: browser-actions/setup-chrome@v1
+      with:
+        chrome-version: 'latest'
+
+    # 4. Instal·lar les llibreries de Python des del fitxer de requeriments
+    - name: Instal·lar llibreries des de requirements.txt
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    # 5. Executar l'script de Python que hem programat abans
+    - name: Executar el bot de Python
+      run: python bot_m3u8.py
+
+    # 6. Desar l'arxiu url.m3u resultant a GitHub de manera automàtica
+    - name: Guardar arxiu url.m3u al repositori
+      run: |
+        git config --global user.name "GitHub Action Bot"
+        git config --global user.email "actions@github.com"
+        git add url.m3u
+        git commit -m "Actualització automàtica del canal LleidaTV" || exit 0
+        git push
